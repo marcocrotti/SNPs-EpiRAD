@@ -1,0 +1,163 @@
+## Demultiplex EpiRAD Illumina reads with process_radtags from Stacks pipeline
+
+process_radtags -P -c -q -r -p ./EpiRAD_raw_reads/Lib1 -o ./demultiplexed_reads/EpiRAD/Intermediate_files2/1.Demultiplexed_reads -b ./files/EpiRAD_lib1_barcodes.txt --inline_inline -i gzfastq -y gzfastq --renz_1 pstI --renz_2 hpaII -t 65 --disable_rad_check
+
+process_radtags -P -c -q -r -p ./ddRAD_raw_reads -o ./demultiplexed_reads/ddRAD/Intermediate_files3/1.Demultiplexed_reads -b ./files/ddRAD_lib1_barcodes.txt --inline_inline -i gzfastq -y gzfastq --renz_1 pstI --renz_2 mspI -t 65 --disable_rad_check
+
+process_radtags -P -c -q -r -p ./ddRAD_raw_reads/project_1393 -o ./demultiplexed_reads/ddRAD/Parents/1.Demultiplexed_reads -b ./files/ddRAD_lib2_barcodes.txt --inline_inline -i gzfastq -y gzfastq --renz_1 pstI --renz_2 mspI -t 65
+
+process_radtags -P -c -q -r -p ./EpiRAD_raw_reads/project_1389 -o ./demultiplexed_reads/EpiRAD/Intermediate_files3/1.Demultiplexed_reads -b ./files/EpiRAD_lib3_barcodes2.txt --inline_inline -i gzfastq -y gzfastq --renz_1 pstI --renz_2 hpaII -t 65
+
+
+for infile in ./demultiplexed_reads/*.1.fq.gz
+do
+base=$(basename $infile .1.fq.gz)
+java -jar /usr/local/bin/trimmomatic-0.38.jar SE -threads 4 $infile ./trimmomatic/$base.fq.gz HEADCROP:5 LEADING:20 TRAILING:20 MINLEN:60
+done
+
+
+
+for infile in ./1.Demultiplexed_reads_ddr/*.fq.gz
+do
+base=$(basename $infile .fq.gz)
+java -jar /usr/local/bin/trimmomatic-0.38.jar SE -threads 4 $infile ./2.Trimmomatic_filtering/$base.fq.gz HEADCROP:5 LEADING:20 TRAILING:20 MINLEN:65
+done
+
+for infile in ./1.Demultiplexed_reads_epi/*.fq.gz
+do
+base=$(basename $infile .fq.gz)
+java -jar /usr/local/bin/trimmomatic-0.38.jar SE -threads 4 $infile ./2.Trimmomatic_filtering/$base.fq.gz HEADCROP:5 LEADING:20 TRAILING:20 MINLEN:65
+done
+
+for R1 in ./2.Trimmomatic_filtering/*.fq.gz
+do
+base=$(basename $R1 .fq.gz)
+bwa mem -t 8 .././3.Assembly/lake_whitefish_genome.fa $R1 | samtools view -bSq 20 | \
+samtools sort -o ./4.bam_alignments/$base.bam
+done
+
+for bam in ./4.bam_alignments/*.bam
+do
+samtools index $bam
+done
+
+
+
+for infile in ./1.Demultiplexed_reads_ddr/*.fq.gz
+do
+base=$(basename $infile .fq.gz)
+java -jar /usr/local/bin/trimmomatic-0.38.jar SE -threads 4 $infile ./2.Trimmomatic_filtering_check/$base.fq.gz LEADING:20 TRAILING:20 MINLEN:65
+done
+
+for infile in ./1.Demultiplexed_reads_epi/*.fq.gz
+do
+base=$(basename $infile .fq.gz)
+java -jar /usr/local/bin/trimmomatic-0.38.jar SE -threads 4 $infile ./2.Trimmomatic_filtering_check/$base.fq.gz LEADING:20 TRAILING:20 MINLEN:65
+done
+
+for R1 in ./2.Trimmomatic_filtering_check/epi*.fq.gz
+do
+base=$(basename $R1 .fq.gz)
+echo "aligning $base"
+bwa mem -t 4 /Users/marcocrotti/Desktop/ddRAD_epiRAD_powan/demultiplexed_reads/Assembly/lake_whitefish_genome.fa $R1 | samtools view -bSq 20 | \
+samtools sort -o ./4.bam_alignments_check/$base.bam
+done
+
+
+
+
+### count reads
+
+cd /Users/marcocrotti/Dropbox/Marco_Crotti/Evolutionary\ genomics\ of\ whitefish/EpiRAD\ vs\ ddRAD\ project/Analysis_combined/4.bam_alignments 
+
+for file in *bam
+do
+samtools view -c $file >> read.count.txt
+done
+
+
+
+
+
+#####################
+##################### STACKS pipeline
+#####################
+
+ref_map.pl -T 4 --samples ./4.bam_alignments/ -o ./Stacks_ddr3 --popmap ./ddr_popmap2.txt --time-components
+
+ref_map.pl -T 4 --samples ./4.bam_alignments/ -o ./Stacks_epi3 --popmap ./epi_popmap2.txt --time-components
+
+populations -P ./Stacks_ddr3 -M ./ddr_popmap2.txt -t 4 -p 2 -r 0.667 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf
+
+populations -P ./Stacks_epi3 -M ./epi_popmap2.txt -t 4 -p 2 -r 0.667 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf
+
+
+populations -P ./Stacks_ddr -O ./Stacks_ddr/r67 -M ./ddr_popmap3.txt -t 4 -p 2 -r 0.667 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf --structure
+
+populations -P ./Stacks_epi -O ./Stacks_epi/r67 -M ./epi_popmap3.txt -t 4 -p 2 -r 0.667 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf --structure
+
+populations -P ./Stacks_ddr -O ./Stacks_ddr/r75 -M ./ddr_popmap3.txt -t 4 -p 2 -r 0.75 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf --structure
+
+populations -P ./Stacks_epi -O ./Stacks_epi/r75 -M ./epi_popmap3.txt -t 4 -p 2 -r 0.75 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf --structure
+
+populations -P ./Stacks_ddr -O ./Stacks_ddr/r100 -M ./ddr_popmap3.txt -t 4 -p 2 -r 1 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf --structure
+
+populations -P ./Stacks_epi -O ./Stacks_epi/r100 -M ./epi_popmap3.txt -t 4 -p 2 -r 1 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf --structure
+
+
+#### create summary stats per individual for ADO analysis
+
+populations -P ./Stacks_ddr -O ./Stacks_ddr3/r67 -M ./ddr_popmap5.txt -t 4 -p 15 --min_maf 0.1 --max_obs_het 0.6 --vcf
+
+populations -P ./Stacks_epi -O ./Stacks_epi3/r67 -M ./epi_popmap5.txt -t 4 -p 15 --min_maf 0.1 --max_obs_het 0.6 --vcf
+
+populations -P ./Stacks_ddr -O ./Stacks_ddr3/r75 -M ./ddr_popmap5.txt -t 4 -p 17 --min_maf 0.1 --max_obs_het 0.6 --vcf
+
+populations -P ./Stacks_epi -O ./Stacks_epi3/r75 -M ./epi_popmap5.txt -t 4 -p 17 --min_maf 0.1 --max_obs_het 0.6 --vcf
+
+populations -P ./Stacks_ddr -O ./Stacks_ddr3/r100 -M ./ddr_popmap5.txt -t 4 -p 23 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf --structure
+
+populations -P ./Stacks_epi -O ./Stacks_epi3/r100 -M ./epi_popmap5.txt -t 4 -p 23 --min_maf 0.1 --write_single_snp --max_obs_het 0.6 --vcf --structure
+
+
+### filter for sites out of HWE
+
+cd /Users/marcocrotti/Dropbox/Marco_Crotti/Evolutionary\ genomics\ of\ whitefish/EpiRAD\ vs\ ddRAD\ project/Analysis_combined/Stacks_ddr
+./filter_hwe_by_pop.pl -v r67/populations.snps.vcf -p ../ddr_popmap3.txt -o r67/hwe.filtered
+## Kept 7289 of a possible 7289 loci (filtered 0 loci)
+
+cd /Users/marcocrotti/Dropbox/Marco_Crotti/Evolutionary\ genomics\ of\ whitefish/EpiRAD\ vs\ ddRAD\ project/Analysis_combined/Stacks_epi
+./filter_hwe_by_pop.pl -v r67/populations.snps.vcf -p ../epi_popmap3.txt -o r67/hwe.filtered
+
+
+#########
+######### Error rate
+######### 
+ref_map.pl -T 4 --samples ./4.bam_alignments/ -o ./ddr_replicates --popmap ./ddr_popmap2.txt --time-components
+
+ref_map.pl -T 4 --samples ./4.bam_alignments/ -o ./epi_replicates --popmap ./epi_popmap2.txt --time-components
+
+populations -P ./ddr_replicates -M ./ddr_replicates.txt -t 4 -r 1 --min_maf 0.1 --max_obs_het 0.6 --vcf --genepop
+
+populations -P ./epi_replicates -M ./epi_replicates.txt -t 4 -r 1 --min_maf 0.1 --max_obs_het 0.6 --vcf --genepop
+
+vcftools --vcf ./ddr_replicates/populations.snps.vcf --minDP 6 --maxDP 80 --max-missing 0.99 --recode --recode-INFO-all --out ./ddr_replicates/replicates
+
+vcftools --vcf ./epi_replicates/populations.snps.vcf --minDP 6 --maxDP 80 --max-missing 0.99 --recode --recode-INFO-all --out ./epi_replicates/replicates
+
+
+## convert vcf to plink with vcftools
+
+vcftools --vcf ./ddr_replicates/replicates.recode.vcf --out ./ddr_replicates/replicates --plink
+
+plink --file ./ddr_replicates/replicates --recode AD --out ./ddr_replicates/replicates
+
+
+
+## convert vcf to plink with vcftools
+
+
+vcftools --vcf ./epi_replicates/replicates.recode.vcf --out ./epi_replicates/replicates --plink
+
+plink --file ./epi_replicates/replicates --recode AD --out ./epi_replicates/replicates
+
